@@ -1,0 +1,1 @@
+export { FetchInterceptor } from './fetch';
