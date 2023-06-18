@@ -169,7 +169,7 @@ class InternalInvocationListener implements InternalInvocationListenerInterface 
         !IsInvocationMethod(method) && (() => { throw `bad invocation method` })();
 
         /** Retrieve the listeners by method */
-        const o = (!this.listeners.has(method) && this.listeners.set(method, new Map<InvocationOrigin, Map<MatchFunction, InvocationCallbacks>>()), this.listeners.get('GET') || (() => { throw `can not register listeners for ${method} method` })());
+        const o = (!this.listeners.has(method) && this.listeners.set(method, new Map<InvocationOrigin, Map<MatchFunction, InvocationCallbacks>>()), this.listeners.get(method) || (() => { throw `can not register listeners for ${method} method` })());
 
         /** Retrieve the listeners by origin */
         const p = (!o.has(origin) && o.set(origin, new Map<MatchFunction, InvocationCallbacks>()), o.get(origin) || (() => { throw `can not register listeners for ${origin} origin` })());
@@ -196,6 +196,10 @@ export class FetchInterceptor {
 
     post(pattern: string, callbacks: InvocationCallbacks) {
         this.handle('POST', pattern, callbacks);
+    }
+
+    any(pattern: string, callbacks: InvocationCallbacks) {
+        AllInvocationMethods.forEach(x => this.handle(x, pattern, callbacks));
     }
 
     handle(method: InvocationMethod, pattern: string, callbacks: InvocationCallbacks) {
