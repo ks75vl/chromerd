@@ -1,5 +1,5 @@
 {
-    "name": "chromerd",
+    "name": "@ks75vl/chromerd",
     "version": "1.0.0",
     "description": "A Chrome DevTools Protocol Wrapper with Frida Interceptor Style",
     "main": "src/index.ts",
