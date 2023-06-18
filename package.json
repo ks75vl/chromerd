@@ -10,7 +10,12 @@
         "type": "git",
         "url": "git+https://github.com/ks75vl/chromerd.git"
     },
-    "keywords": ["frida", "cdp", "devtools", "hook"],
+    "keywords": [
+        "frida",
+        "cdp",
+        "devtools",
+        "hook"
+    ],
     "author": "ks75vl",
     "license": "UNLICENSED",
     "bugs": {
@@ -18,7 +23,8 @@
     },
     "homepage": "https://github.com/ks75vl/chromerd#readme",
     "devDependencies": {
-        "@types/chrome-remote-interface": "^0.31.10"
+        "@types/chrome-remote-interface": "^0.31.10",
+        "@types/jest": "^29.5.2"
     },
     "dependencies": {
         "chrome-remote-interface": "^0.32.2",
