@@ -3,31 +3,77 @@ import type ProtocolProxyApi from 'devtools-protocol/types/protocol-proxy-api';
 import type Protocol from 'devtools-protocol/types/protocol';
 import { DoEventListeners, DoEventPromises } from 'chrome-remote-interface';
 
-type MIMEType = 'text/plain' | 'application/json';
-const MIME_REGEX: Array<{ name: MIMEType, regex: RegExp }> = [
-    { regex: /application\/json/, name: 'application/json' }
-];
-
+/** Represents the available HTTP methods for invocations */
 const AllInvocationMethods = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'TRACE', 'PATCH'] as const;
-
 export type InvocationMethod = typeof AllInvocationMethods[number];
 
+/** Alias type */
 export type InvocationOrigin = string;
-
 export type InvocationPath = string;
 
-function IsInvocationMethod(value: string): value is InvocationMethod {
-    return AllInvocationMethods.includes(value as InvocationMethod)
+/** Represents the parsed arguments of an invocation as key-value pairs */
+export type InvocationArguments = { [key: string]: string };
+
+export type InvocationCallbacks = {
+    /** The callback function called when a request is in request state */
+    onRequest?: (this: InvocationContext, query: InvocationArguments, body: InvocationArguments) => void;
+    /** The callback function called when a request is in response state */
+    onResponse?: (this: InvocationReturnValue, body: InvocationArguments) => void;
+}
+
+export type BodyParserInterface = {
+
+    /** Parser content type name in format type/subtype */
+    name: string;
+
+    /** Parse method */
+    parse(data: ArrayBuffer): { [key: string]: string };
+
+    /** Encode method */
+    encode(data: { [key: string]: string }): ArrayBuffer;
 }
 
 export type InvocationContext = {
+    /** The HTTP method of the invocation. */
     method: InvocationMethod;
+    /** The URL of the invocation */
     url: string;
+    /** The URL query parameters of the invocation */
     query: URLSearchParams;
+    /** The raw body of the invocation */
     body: ArrayBuffer;
+    /** The form data of the invocation, parsed based on content-type header value */
     form: Map<string, string | ArrayBuffer>;
+    /** The parameters extracted from the URL match pattern */
     params: Map<string, string>;
+    /** The request headers of the invocation */
     requestHeaders: Map<string, string>;
+    /** Compares the current invocation context with another target context */
+    compare(target: InvocationContext): Promise<{ modified: boolean, modifiedParams: boolean }>;
+    /** Creates a deep-copy of the invocation context */
+    copy(): InvocationContext;
+}
+
+export type InvocationReturnValue = {
+    /** The HTTP status code of the response */
+    statusCode: number;
+    /** The status text of the response */
+    statusText: string;
+    /** The raw response body */
+    body: ArrayBuffer;
+    /** The form data of the response, parsed based on content-type header value */
+    form: Map<string, string>,
+    /** The response headers of the response */
+    responseHeaders: Map<string, string>;
+    /** Compares the current invocation context with another target context */
+    compare(target: InvocationReturnValue): Promise<{ modified: boolean }>;
+    /** Creates a deep-copy of the invocation context */
+    copy(): InvocationReturnValue;
+};
+
+
+function IsInvocationMethod(value: string): value is InvocationMethod {
+    return AllInvocationMethods.includes(value as InvocationMethod)
 }
 
 class InternalInvocationContext implements InvocationContext {
@@ -45,17 +91,34 @@ class InternalInvocationContext implements InvocationContext {
         this.target = new URL(url);
         this.query = this.target.searchParams;
     }
+
+    private mapcmp(src: Map<string, string>, dst: Map<string, string>): boolean {
+        return src.size === dst.size && Array.from(src.keys()).every(x => src.get(x) === dst.get(x));
+    }
+
+    async compare(target: InternalInvocationContext): Promise<{ modified: boolean, modifiedParams: boolean }> {
+        const modifiedUrl = target.target.toString() !== this.url;
+        const modifiedMethod = target.method !== this.method;
+        const modifiedHeaders = !this.mapcmp(this.requestHeaders, target.requestHeaders);
+        const modifiedParams = !this.mapcmp(this.params, target.params);
+        const modifiedForm = !this.mapcmp(this.form, target.form);
+        const hash1 = new Uint32Array(await crypto.subtle.digest('SHA-256', this.body));
+        const hash2 = new Uint32Array(await crypto.subtle.digest('SHA-256', target.body));
+        const modifiedBody = !hash1.every((v, i) => v === hash2[i]);
+        const modified = modifiedUrl || modifiedMethod || modifiedHeaders || modifiedParams || modifiedForm || modifiedBody;
+        return { modified, modifiedParams };
+    }
+
+    copy(): InternalInvocationContext {
+        const method = this.method;
+        const url = this.url;
+        const params = new Map(Array.from(this.params));
+        const headers = new Map(Array.from(this.requestHeaders));
+        const body = this.body.slice(0);
+        const form = new Map(Array.from(this.form));
+        return new InternalInvocationContext(method, url, params, form, body, headers);
+    }
 }
-
-export type InvocationArguments = { [key: string]: string };
-
-export type InvocationReturnValue = {
-    statusCode: number;
-    statusText: string;
-    body: ArrayBuffer;
-    form: Map<string, string>,
-    responseHeaders: Map<string, string>;
-};
 
 class InternalInvocationReturnValue implements InvocationReturnValue {
 
@@ -65,19 +128,35 @@ class InternalInvocationReturnValue implements InvocationReturnValue {
         public responseHeaders: Map<string, string>,
         public body: ArrayBuffer,
         public form: Map<string, string>,
-    ) {
+    ) { }
 
+    private mapcmp(src: Map<string, string>, dst: Map<string, string>): boolean {
+        return src.size === dst.size && Array.from(src.keys()).every(x => src.get(x) === dst.get(x));
+    }
+
+    async compare(target: InternalInvocationReturnValue): Promise<{ modified: boolean, modifiedForm: boolean }> {
+        const modifiedStatusCode = target.statusCode !== this.statusCode;
+        const modifiedStatusText = target.statusText !== this.statusText;
+        const modifiedHeaders = !this.mapcmp(this.responseHeaders, target.responseHeaders);
+        const modifiedForm = !this.mapcmp(this.form, target.form);
+        const hash1 = new Uint32Array(await crypto.subtle.digest('SHA-256', this.body));
+        const hash2 = new Uint32Array(await crypto.subtle.digest('SHA-256', target.body));
+        const modifiedBody = !hash1.every((v, i) => v === hash2[i]);
+        const modified = modifiedStatusCode || modifiedStatusText || modifiedHeaders || modifiedForm || modifiedBody;
+        return { modified, modifiedForm };
+    }
+
+    copy(): InternalInvocationReturnValue {
+        const statusCode = this.statusCode;
+        const statusText = this.statusText;
+        const responseHeaders = new Map(Array.from(this.responseHeaders));
+        const body = this.body.slice(0);
+        const form = new Map(Array.from(this.form));
+        return new InternalInvocationReturnValue(statusCode, statusText, responseHeaders, body, form);
     }
 };
 
-
-export type InvocationCallbacks = {
-    onRequest?: (this: InvocationContext, query: InvocationArguments, body: InvocationArguments) => void;
-    onResponse?: (this: InvocationReturnValue, body: InvocationArguments) => void;
-}
-
-
-const HttpStatusText = new Map<number, string>([
+const HttpStatusText = new Map([
     [100, 'Continue'],
     [101, 'Switching Protocols'],
     [102, 'Processing'],
@@ -157,9 +236,6 @@ class InternalInvocationListener implements InternalInvocationListenerInterface 
 
     get(method: InvocationMethod, origin: InvocationOrigin): Map<MatchFunction<{ [key: string]: string }>, { pattern: string, callbacks: InvocationCallbacks }> | void {
 
-        /** Check invocation method */
-        !IsInvocationMethod(method) && (() => { throw `bad invocation method` })();
-
         /** Retrieve the listeners by method */
         const o = this.listeners.get(method); if (!o) return;
 
@@ -171,9 +247,6 @@ class InternalInvocationListener implements InternalInvocationListenerInterface 
 
     set(method: InvocationMethod, origin: InvocationOrigin, pattern: string, matchFn: MatchFunction<{ [key: string]: string }>, pathname: string, callbacks: InvocationCallbacks): void {
 
-        /** Check invocation method */
-        !IsInvocationMethod(method) && (() => { throw `bad invocation method` })();
-
         /** Retrieve the listeners by method */
         const o = (!this.listeners.has(method) && this.listeners.set(method, new Map()), this.listeners.get(method) || (() => { throw `can not register listeners for ${method} method` })());
 
@@ -181,25 +254,21 @@ class InternalInvocationListener implements InternalInvocationListenerInterface 
         const p = (!o.has(origin) && o.set(origin, new Map()), o.get(origin) || (() => { throw `can not register listeners for ${origin} origin` })());
 
         /** Save the listeners */
-        const cb = (p.set(matchFn, { pattern, callbacks }), p.get(matchFn) || (() => { throw `can not register listeners for ${pathname} pathname` })());
+        (p.set(matchFn, { pattern, callbacks }), p.get(matchFn) || (() => { throw `can not register listeners for ${pathname} pathname` })());
     }
 }
 
-export type BodyParserInterface = {
-
-    /** Parser content type name in format type/subtype */
-    name: string;
-
-    /** Parse method */
-    parse(data: ArrayBuffer): { [key: string]: string };
-}
-
-class JsonBodyParser implements BodyParserInterface {
+export class JsonBodyParser implements BodyParserInterface {
     name: string = 'application/json';
 
     parse(data: ArrayBuffer): { [key: string]: string; } {
         const s = new TextDecoder('utf-8').decode(data);
         try { return JSON.parse(s); } catch (e) { return {}; }
+    }
+
+    encode(data: { [key: string]: string; }): ArrayBuffer {
+        const encoder = new TextEncoder();
+        return encoder.encode(JSON.stringify(data));
     }
 }
 
@@ -237,95 +306,80 @@ export class FetchInterceptor {
     handle(method: InvocationMethod, pattern: string, callbacks: InvocationCallbacks) {
         const { origin, pathname } = new URL(pattern);
 
-        try {
-            this.listeners.set(method, origin, pattern, match<{ [key: string]: string }>(pathname), pathname, callbacks);
-        } catch (e) {
-            throw `can not attach to ${pattern} on method ${method}, reason=${e}`;
-        }
+        !IsInvocationMethod(method) && (() => { throw void 0; })();
+        this.listeners.set(method, origin, pattern, match<{ [key: string]: string }>(pathname), pathname, callbacks);
     }
 
-    private requestPaused(params: Protocol.Fetch.RequestPausedEvent) {
+    private async requestPaused(params: Protocol.Fetch.RequestPausedEvent) {
         const { request: { method, url, headers: reqHdrs, hasPostData = false, postData = '' }, requestId, responseStatusCode, responseStatusText, responseHeaders: rspHdrs = [] } = params;
         const { origin, pathname } = new URL(url);
         const crq: Protocol.Fetch.ContinueRequestRequest = { requestId };
         const isreq = responseStatusCode === undefined || responseStatusText === undefined;
         const isredirect = !isreq && responseStatusCode >= 300 && responseStatusCode < 400;
 
-
         /** Check invocation method */
-        if (!IsInvocationMethod(method)) return (this.fetch.continueRequest(crq), void 0);
+        if (!IsInvocationMethod(method)) return this.fetch.continueRequest(crq);
 
         /** Format headers */
         const requestHeaders: [string, string][] = Object.entries(reqHdrs).map(([name, value]) => [name.toLowerCase(), value]);
         const responseHeaders: [string, string][] = rspHdrs.map(({ name, value }) => [name.toLowerCase(), value]);
 
         /** Retrieve body parser */
-        const contentType = /^(?<contentType>[a-zA-Z0-9]+\/[a-zA-Z0-9]+)(;.*)?/.exec((responseHeaders || requestHeaders).find(([name]) => name === 'content-type')?.[0] || '')?.groups?.contenType || 'N/A';
+        const contentType = /^(?<contentType>[a-zA-Z0-9]+\/[a-zA-Z0-9]+)(;.*)?/.exec((responseHeaders || requestHeaders).find(([name]) => name === 'content-type')?.[1] || '')?.groups?.contentType || 'N/A';
         const parser = this.bodyParser.get(contentType);
 
         /** Retrieve the listeners */
-        const p = this.listeners.get(method as InvocationMethod, origin); if (!p) return (this.fetch.continueRequest(crq), void 0);
+        const p = this.listeners.get(method, origin); if (!p) return this.fetch.continueRequest(crq);
         const pp = this.listenersCache.get(p) || this.listenersCache.set(p, Array.from(p.entries())).get(p) || (() => { throw void 0; })();
 
         /** Retrieve the callbacks */
         const [matcher, callbacks] = pp.find(([m, c]) => m(pathname)) || [];
-        if (!matcher || !callbacks) return (this.fetch.continueRequest(crq), void 0);
+        if (!matcher || !callbacks) return this.fetch.continueRequest(crq);
 
         /**
          * onRequest
          */
-        if (isreq) return (Promise.resolve().then(async () => {
+        if (isreq) {
 
             /** Prepare for callback */
-            const { params: p } = matcher(pathname) || ({ params: {} } as MatchResult<{ [key: string]: string }>);
+            const { params: p } = matcher(pathname) || ({ params: {} } as MatchResult<{ [key: string]: string; }>);
             const params = new Map(Object.entries(p));
             const headers = new Map(requestHeaders);
             const body = new TextEncoder().encode(hasPostData ? postData : '');
             const parsedBody = Object.entries((parser && hasPostData && parser.parse(body)) || {});
             const form = new Map(parsedBody);
             const { callbacks: { onRequest: fn }, pattern } = callbacks;
-            const ctx: InternalInvocationContext = new InternalInvocationContext(method, url, params, form, body, headers);
+            const context: InternalInvocationContext = new InternalInvocationContext(method, url, params, form, body, headers);
 
             /** onRequest callback is not specified */
-            if (!fn) return (await this.fetch.continueRequest({ requestId }), void 0);
+            if (!fn) return await this.fetch.continueRequest({ requestId });
 
             /** Bind context and invoke callback */
-            const invoker = fn.bind(ctx);
-            const invocationQuery = Object.fromEntries(ctx.query);
-            const invocationBody = Object.fromEntries(ctx.form);
-            const ret = (invoker(invocationQuery, invocationBody), ctx);
+            const caller = context.copy();
+            const invoker = fn.bind(caller);
+            const invocationQuery = Object.fromEntries(caller.query);
+            const invocationBody = Object.fromEntries(caller.form);
+            const ret = (invoker(invocationQuery, invocationBody), caller);
 
             /** Save context into cache for later */
             this.contextCache.set(requestId, ret);
 
-
-
-            /** 
+            /**
             * Build `Fetch.continueRequest` request
-            * 
+            *
             * Note: When a field is changed by a callback, all fields must be specified
             * to ensure that the change is applied.
             */
             const crrq: Protocol.Fetch.ContinueRequestRequest = { requestId, interceptResponse: true };
-            const modifiedUrl = ret.target.toString() !== url;
-            const modifiedMethod = ret.method !== method;
-            const modifiedHeaders = !requestHeaders.every(([name, value]) => ret.requestHeaders.get(name) === value);
-            const modifiedParams = !Object.entries(p).every(([name, value]) => ret.params.get(name) === value);
-            const modifiedForm = !parsedBody.every(([name, value]) => ret.form.get(name) === value);
-            const hash1 = new Uint32Array(await crypto.subtle.digest('SHA-256', body));
-            const hash2 = new Uint32Array(await crypto.subtle.digest('SHA-256', ret.body));
-            const modifiedBody = !hash1.every((v, i) => v === hash2[i]);
-            const modified = modifiedUrl || modifiedMethod || modifiedHeaders || modifiedParams || modifiedForm || modifiedBody;
+            const { modified, modifiedParams } = await context.compare(ret);
 
             /**
              * @TODO Determine if `postData` needs to be encoded in `base64`.
              */
-            modified && (/** Update url */crrq.url = (modifiedParams ? ret.target.pathname = compile<{ [key: string]: string }>(pattern)(Object.fromEntries(ret.params)) : void 0, ret.target.toString()), /** Update method */crrq.method = ret.method, /** Update headers */crrq.headers = Array.from(ret.requestHeaders.entries()).map(([name, value]) => ({ name, value })), /** Update post data */crrq.postData = Buffer.from(ret.body).toString('base64'));
+            modified && ( /** Update url */crrq.url = (modifiedParams ? ret.target.pathname = compile<{ [key: string]: string; }>(pattern)(Object.fromEntries(ret.params)) : void 0, ret.target.toString()), /** Update method */ crrq.method = ret.method, /** Update headers */ crrq.headers = Array.from(ret.requestHeaders).map(([name, value]) => ({ name, value })), /** Update post data */ crrq.postData = Buffer.from(ret.body).toString('base64'));
 
-            await this.fetch.continueRequest(crrq);
-
-            return;
-        }), void 0);
+            return await this.fetch.continueRequest(crrq);
+        }
 
         /**
          * onResponse
@@ -335,61 +389,54 @@ export class FetchInterceptor {
          * As a result, the headers are not fully received,
          * which prevents us from retrieving the response body using `Fetch.getResponseBody`.
          */
-        (isredirect ? Promise.resolve({ base64Encoded: true, body: '' }) : this.fetch.getResponseBody({ requestId })).then(async ({ base64Encoded, body: rawBody }) => {
+        const { base64Encoded, body: rawBody } = await (isredirect ? Promise.resolve({ base64Encoded: true, body: '' }) : this.fetch.getResponseBody({ requestId }));
 
-            /** 
-             * Prepare for callback.
-             * Build context, bind to callback and invoke callback.
-             * 
-             * Note: If no callback is specified,
-             * send the `Fetch.continueResponse` command without any intercepted response.
-             */
-            const headers = new Map(responseHeaders);
-            const body = new TextEncoder().encode(base64Encoded ? Buffer.from(rawBody, 'base64').toString() : rawBody);
-            const parsedBody = Object.entries((parser && hasPostData && parser.parse(body)) || {});
-            const form = new Map(parsedBody);
-            const statusText = !responseStatusText.length ? (HttpStatusText.get(responseStatusCode) || 'UNKNOWN') : responseStatusText;
-            const { callbacks: { onResponse: fn } } = callbacks;
-            const ctx: InternalInvocationReturnValue = new InternalInvocationReturnValue(responseStatusCode, statusText, headers, body, form);
+        /**
+         * Step 1: Build context, bind to callback and invoke callback.
+         *
+         * Note: If no callback is specified,
+         * send the `Fetch.continueResponse` command without any intercepted response.
+         */
+        const headers = new Map(responseHeaders);
+        const body = new TextEncoder().encode(base64Encoded ? Buffer.from(rawBody, 'base64').toString() : rawBody);
+        const parsedBody = Object.entries((parser && hasPostData && parser.parse(body)) || {});
+        const form = new Map(parsedBody);
+        const statusText = !responseStatusText.length ? (HttpStatusText.get(responseStatusCode) || 'UNKNOWN') : responseStatusText;
+        const { callbacks: { onResponse: fn } } = callbacks;
+        const context: InternalInvocationReturnValue = new InternalInvocationReturnValue(responseStatusCode, statusText, headers, body, form);
 
-            /** onResponse callback is not specified */
-            if (!fn) return (await this.fetch.continueResponse({ requestId }), void 0);
+        /** onResponse callback is not specified */
+        if (!fn) return await this.fetch.continueResponse({ requestId });
 
-            /** Invoke callback */
-            const invoker = fn.bind(ctx);
-            const invocationBody = Object.fromEntries(ctx.form);
-            const ret = (invoker(invocationBody), ctx);
+        /** Invoke callback */
+        const caller = context.copy();
+        const invoker = fn.bind(caller);
+        const invocationBody = Object.fromEntries(caller.form);
+        const ret = (invoker(invocationBody), caller);
 
-            /** Remove context from cache */
-            this.contextCache.delete(requestId);
+        /** Remove context from cache */
+        this.contextCache.delete(requestId);
 
 
-            /** 
-             * Build `Fetch.FulfillRequestRequest` request
-             * 
-             * Note: When a field is changed by a callback, all fields must be specified
-             * to ensure that the change is applied.
-             */
-            const cffrq: Protocol.Fetch.FulfillRequestRequest = { requestId, responseCode: responseStatusCode };
-            const modifiedStatusCode = ret.statusCode !== responseStatusCode;
-            const modifiedStatusText = ret.statusText !== responseStatusText;
-            const modifiedHeaders = !responseHeaders.every(([name, value]) => ret.responseHeaders.get(name) === value);
-            const modifiedForm = !parsedBody.every(([name, value]) => ret.form.get(name) === value);
-            const hash1 = new Uint32Array(await crypto.subtle.digest('SHA-256', body));
-            const hash2 = new Uint32Array(await crypto.subtle.digest('SHA-256', ret.body));
-            const modifiedBody = !hash1.every((v, i) => v === hash2[i]);
-            const modified = modifiedStatusCode || modifiedStatusText || modifiedHeaders || modifiedForm || modifiedBody;
+        /**
+         * Step 2: Build `Fetch.FulfillRequestRequest` request
+         *
+         * Note: When a field is changed by a callback, all fields must be specified
+         * to ensure that the change is applied.
+         */
+        const cffrq: Protocol.Fetch.FulfillRequestRequest = { requestId, responseCode: responseStatusCode };
+        const { modified, modifiedForm } = await context.compare(ret);
 
-            modified && (/** Update status code */cffrq.responseCode = ret.statusCode,/** Update status text */cffrq.responsePhrase = ret.statusText,/** Update headers */cffrq.responseHeaders = Array.from(ret.responseHeaders.entries()).map(([name, value]) => ({ name, value })),/** Update body */cffrq.body = Buffer.from(!!ret.body.byteLength ? ret.body : body).toString(base64Encoded ? 'base64' : 'utf8'));
+        modified && ( /** Update status code */cffrq.responseCode = ret.statusCode, /** Update status text */ cffrq.responsePhrase = ret.statusText, /** Update headers */ cffrq.responseHeaders = Array.from(ret.responseHeaders.entries(), ([name, value]) => ({ name, value })), /** Update body */ cffrq.body = Buffer.from(modifiedForm && parser ? parser.encode(Object.fromEntries(ret.form)) : (!!ret.body.byteLength ? ret.body : body)).toString(base64Encoded ? 'base64' : 'utf8'));
 
-            await this.fetch.fulfillRequest(cffrq);
-
-            return;
-        });
+        /**
+         * Step 3: Send cdp command
+         */
+        return await this.fetch.fulfillRequest(cffrq);
     }
 
     async enable() {
-        this.fetch.requestPaused(params => this.requestPaused(params));
+        this.fetch.requestPaused(async params => await this.requestPaused(params));
         return await this.fetch.enable({});
     }
 }
