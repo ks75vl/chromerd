@@ -39,7 +39,7 @@ export type InvocationContext = {
     /** The URL of the invocation */
     url: string;
     /** The URL query parameters of the invocation */
-    query: URLSearchParams;
+    query: Map<string, string>;
     /** The raw body of the invocation */
     body: ArrayBuffer;
     /** The form data of the invocation, parsed based on content-type header value */
@@ -70,35 +70,35 @@ function IsInvocationMethod(value: string): value is InvocationMethod {
 
 class InternalInvocationContext implements InvocationContext {
     public target: URL;
-    public query: URLSearchParams;
 
     constructor(
         public method: InvocationMethod,
         public url: string,
         public params: Map<string, string>,
         public form: Map<string, string>,
+        public query: Map<string, string>,
         public body: ArrayBuffer,
         public requestHeaders: Map<string, string>
     ) {
         this.target = new URL(url);
-        this.query = this.target.searchParams;
     }
 
     private mapcmp(src: Map<string, string>, dst: Map<string, string>): boolean {
         return src.size === dst.size && Array.from(src.keys()).every(x => src.get(x) === dst.get(x));
     }
 
-    async compare(target: InternalInvocationContext): Promise<{ modified: boolean, modifiedParams: boolean }> {
-        const modifiedUrl = target.target.toString() !== this.url;
+    async compare(target: InternalInvocationContext): Promise<{ modified: boolean, modifiedParams: boolean, modifiedForm: boolean, modifiedQuery: boolean }> {
+        const modifiedUrl = target.url !== this.url;
         const modifiedMethod = target.method !== this.method;
         const modifiedHeaders = !this.mapcmp(this.requestHeaders, target.requestHeaders);
         const modifiedParams = !this.mapcmp(this.params, target.params);
+        const modifiedQuery = !this.mapcmp(this.query, target.query);
         const modifiedForm = !this.mapcmp(this.form, target.form);
         const hash1 = new Uint32Array(await crypto.subtle.digest('SHA-256', this.body));
         const hash2 = new Uint32Array(await crypto.subtle.digest('SHA-256', target.body));
         const modifiedBody = !hash1.every((v, i) => v === hash2[i]);
-        const modified = modifiedUrl || modifiedMethod || modifiedHeaders || modifiedParams || modifiedForm || modifiedBody;
-        return { modified, modifiedParams };
+        const modified = modifiedUrl || modifiedMethod || modifiedHeaders || modifiedParams || modifiedForm || modifiedBody || modifiedQuery;
+        return { modified, modifiedParams, modifiedForm, modifiedQuery };
     }
 
     copy(): InternalInvocationContext {
@@ -106,9 +106,10 @@ class InternalInvocationContext implements InvocationContext {
         const url = this.url;
         const params = new Map(Array.from(this.params));
         const headers = new Map(Array.from(this.requestHeaders));
+        const query = new Map(this.query);
         const body = this.body.slice(0);
         const form = new Map(Array.from(this.form));
-        return new InternalInvocationContext(method, url, params, form, body, headers);
+        return new InternalInvocationContext(method, url, params, form, query, body, headers);
     }
 }
 
@@ -216,7 +217,7 @@ const HttpStatusText = new Map([
 
 type InternalInvocationListenerInterface = {
     get(method: InvocationMethod, origin: InvocationOrigin): Map<MatchFunction<{ [key: string]: string }>, { pattern: string, callbacks: InvocationCallbacks }> | void;
-    set(method: InvocationMethod, origin: InvocationOrigin, pattern: string, matchFn: MatchFunction<{ [key: string]: string }>, pathname: string, callbacks: InvocationCallbacks): void;
+    set(method: InvocationMethod, origin: InvocationOrigin, pattern: string, matchFn: MatchFunction<{ [key: string]: string }>, callbacks: InvocationCallbacks): void;
 }
 
 class InternalInvocationListener implements InternalInvocationListenerInterface {
@@ -237,7 +238,7 @@ class InternalInvocationListener implements InternalInvocationListenerInterface 
         return p;
     }
 
-    set(method: InvocationMethod, origin: InvocationOrigin, pattern: string, matchFn: MatchFunction<{ [key: string]: string }>, pathname: string, callbacks: InvocationCallbacks): void {
+    set(method: InvocationMethod, origin: InvocationOrigin, pattern: string, matchFn: MatchFunction<{ [key: string]: string }>, callbacks: InvocationCallbacks): void {
 
         /** Retrieve the listeners by method */
         const o = (!this.listeners.has(method) && this.listeners.set(method, new Map()), this.listeners.get(method) || (() => { throw `can not register listeners for ${method} method` })());
@@ -246,7 +247,7 @@ class InternalInvocationListener implements InternalInvocationListenerInterface 
         const p = (!o.has(origin) && o.set(origin, new Map()), o.get(origin) || (() => { throw `can not register listeners for ${origin} origin` })());
 
         /** Save the listeners */
-        (p.set(matchFn, { pattern, callbacks }), p.get(matchFn) || (() => { throw `can not register listeners for ${pathname} pathname` })());
+        (p.set(matchFn, { pattern, callbacks }), p.get(matchFn) || (() => { throw `can not register listeners for ${pattern} pattern` })());
     }
 }
 
@@ -299,12 +300,17 @@ export class FetchInterceptor {
         const { origin, pathname } = new URL(pattern);
 
         !IsInvocationMethod(method) && (() => { throw void 0; })();
-        this.listeners.set(method, origin, pattern, match<{ [key: string]: string }>(pathname), pathname, callbacks);
+        this.listeners.set(method, origin, pathname, match<{ [key: string]: string }>(pathname), callbacks);
+    }
+
+    private getBodyParser(contentType: string): BodyParserInterface | undefined {
+        const ct = /^(?<contentType>[a-zA-Z0-9]+\/[a-zA-Z0-9]+)(;.*)?/.exec(contentType)?.groups?.contentType || 'N/A';
+        return this.bodyParser.get(ct);
     }
 
     private async requestPaused(params: Protocol.Fetch.RequestPausedEvent) {
         const { request: { method, url, headers: reqHdrs, hasPostData = false, postData = '' }, requestId, responseStatusCode, responseStatusText, responseHeaders: rspHdrs = [] } = params;
-        const { origin, pathname } = new URL(url);
+        const { origin, pathname, searchParams } = new URL(url);
         const crq: Protocol.Fetch.ContinueRequestRequest = { requestId };
         const isreq = responseStatusCode === undefined || responseStatusText === undefined;
         const isredirect = !isreq && responseStatusCode >= 300 && responseStatusCode < 400;
@@ -315,10 +321,6 @@ export class FetchInterceptor {
         /** Format headers */
         const requestHeaders: [string, string][] = Object.entries(reqHdrs).map(([name, value]) => [name.toLowerCase(), value]);
         const responseHeaders: [string, string][] = rspHdrs.map(({ name, value }) => [name.toLowerCase(), value]);
-
-        /** Retrieve body parser */
-        const contentType = /^(?<contentType>[a-zA-Z0-9]+\/[a-zA-Z0-9]+)(;.*)?/.exec((responseHeaders || requestHeaders).find(([name]) => name === 'content-type')?.[1] || '')?.groups?.contentType || 'N/A';
-        const parser = this.bodyParser.get(contentType);
 
         /** Retrieve the listeners */
         const p = this.listeners.get(method, origin); if (!p) return this.fetch.continueRequest(crq);
@@ -332,16 +334,16 @@ export class FetchInterceptor {
          * onRequest
          */
         if (isreq) {
-
             /** Prepare for callback */
             const { params: p } = matcher(pathname) || ({ params: {} } as MatchResult<{ [key: string]: string; }>);
             const params = new Map(Object.entries(p));
             const headers = new Map(requestHeaders);
             const body = new TextEncoder().encode(hasPostData ? postData : '');
-            const parsedBody = Object.entries((parser && hasPostData && parser.parse(body)) || {});
+            const preparser = this.getBodyParser(headers.get('content-type') || '');
+            const parsedBody = Object.entries((preparser && hasPostData && preparser.parse(body)) || {});
             const form = new Map(parsedBody);
             const { callbacks: { onRequest: fn }, pattern } = callbacks;
-            const context: InternalInvocationContext = new InternalInvocationContext(method, url, params, form, body, headers);
+            const context: InternalInvocationContext = new InternalInvocationContext(method, url, params, form, new Map(searchParams), body, headers);
 
             /** onRequest callback is not specified */
             if (!fn) return await this.fetch.continueRequest({ requestId });
@@ -356,6 +358,9 @@ export class FetchInterceptor {
             /** Save context into cache for later */
             this.contextCache.set(requestId, ret);
 
+            /** Retrieve body parser */
+            const subparser = this.getBodyParser(ret.requestHeaders.get('content-type') || '');
+
             /**
             * Build `Fetch.continueRequest` request
             *
@@ -363,12 +368,12 @@ export class FetchInterceptor {
             * to ensure that the change is applied.
             */
             const crrq: Protocol.Fetch.ContinueRequestRequest = { requestId, interceptResponse: true };
-            const { modified, modifiedParams } = await context.compare(ret);
+            const { modified, modifiedParams, modifiedForm, modifiedQuery } = await context.compare(ret);
 
             /**
              * @TODO Determine if `postData` needs to be encoded in `base64`.
              */
-            modified && ( /** Update url */crrq.url = (modifiedParams ? ret.target.pathname = compile<{ [key: string]: string; }>(pattern)(Object.fromEntries(ret.params)) : void 0, ret.target.toString()), /** Update method */ crrq.method = ret.method, /** Update headers */ crrq.headers = Array.from(ret.requestHeaders).map(([name, value]) => ({ name, value })), /** Update post data */ crrq.postData = Buffer.from(ret.body).toString('base64'));
+            modified && ( /** Update url */crrq.url = (modifiedParams || modifiedQuery) ? (modifiedParams && (ret.target.pathname = compile<{ [key: string]: string; }>(pattern)(Object.fromEntries(ret.params))), (modifiedQuery && (ret.target.search = new URLSearchParams(Array.from(ret.query.entries())).toString())), ret.target.toString()) : ret.url, /** Update method */ crrq.method = ret.method, /** Update headers */ crrq.headers = Array.from(ret.requestHeaders).map(([name, value]) => ({ name, value })), /** Update post data */ crrq.postData = Buffer.from((modifiedForm && subparser) ? subparser.encode(Object.fromEntries(ret.form)) : (!!ret.body.byteLength ? ret.body : body)).toString('base64'));
 
             return await this.fetch.continueRequest(crrq);
         }
@@ -391,7 +396,8 @@ export class FetchInterceptor {
          */
         const headers = new Map(responseHeaders);
         const body = new TextEncoder().encode(base64Encoded ? Buffer.from(rawBody, 'base64').toString() : rawBody);
-        const parsedBody = Object.entries((parser && hasPostData && parser.parse(body)) || {});
+        const preparser = this.getBodyParser(headers.get('content-type') || '');
+        const parsedBody = Object.entries((preparser && hasPostData && preparser.parse(body)) || {});
         const form = new Map(parsedBody);
         const statusText = !responseStatusText.length ? (HttpStatusText.get(responseStatusCode) || 'UNKNOWN') : responseStatusText;
         const { callbacks: { onResponse: fn } } = callbacks;
@@ -409,6 +415,8 @@ export class FetchInterceptor {
         /** Remove context from cache */
         this.contextCache.delete(requestId);
 
+        /** Retrieve body parser */
+        const subparser = this.getBodyParser(ret.responseHeaders.get('content-type') || '');
 
         /**
          * Step 2: Build `Fetch.FulfillRequestRequest` request
@@ -419,7 +427,7 @@ export class FetchInterceptor {
         const cffrq: Protocol.Fetch.FulfillRequestRequest = { requestId, responseCode: responseStatusCode };
         const { modified, modifiedForm } = await context.compare(ret);
 
-        modified && ( /** Update status code */cffrq.responseCode = ret.statusCode, /** Update status text */ cffrq.responsePhrase = ret.statusText, /** Update headers */ cffrq.responseHeaders = Array.from(ret.responseHeaders.entries(), ([name, value]) => ({ name, value })), /** Update body */ cffrq.body = Buffer.from(modifiedForm && parser ? parser.encode(Object.fromEntries(ret.form)) : (!!ret.body.byteLength ? ret.body : body)).toString(base64Encoded ? 'base64' : 'utf8'));
+        modified && ( /** Update status code */cffrq.responseCode = ret.statusCode, /** Update status text */ cffrq.responsePhrase = ret.statusText, /** Update headers */ cffrq.responseHeaders = Array.from(ret.responseHeaders.entries(), ([name, value]) => ({ name, value })), /** Update body */ cffrq.body = Buffer.from((modifiedForm && subparser) ? subparser.encode(Object.fromEntries(ret.form)) : (!!ret.body.byteLength ? ret.body : body)).toString(base64Encoded ? 'base64' : 'utf8'));
 
         /**
          * Step 3: Send cdp command
