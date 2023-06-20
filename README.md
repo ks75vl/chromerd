@@ -59,7 +59,7 @@ import { FetchInterceptor } from "@ks75vl/chromerd";
 > Overwrite below properties to manipulate the request.
 - `method`: Represents the HTTP method of the invocation.<br>Supported value: `GET`, `HEAD`, `POST`, `PUT`, `DELETE`, `OPTIONS`, `TRACE`, `PATCH`
 - `url`: Represents the URL of the invocation. It contains the complete URL, including the protocol, domain, path, and query parameters (fragment excluded)
-- `query`: Represents the parsed URL query parameters of the invocation. It is an instance of the `URLSearchParams` class, which provides methods for working with query parameters
+- `query`: Represents the parsed URL query parameters of the invocation. It is a `Map`, which provides methods for working with query parameters
 - `body`: Represents the raw body of the invocation. It is an `ArrayBuffer` that stores the binary data of the request body. Empty body will be ended in an zero-length `ArrayBuffer`.
 - `form`: Represents the form data of the invocation, parsed based on the `content-type` header value. It is a `Map` where the keys are field names, and the values can be `string` or `ArrayBuffer`
 - `params`: Represents the parameters extracted from the URL match pattern. It is a `Map` where the keys are parameter names, and the values are the corresponding parameter values as strings
