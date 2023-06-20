@@ -43,7 +43,7 @@ import { FetchInterceptor } from "@ks75vl/chromerd";
 - `FetchInterceptor.post(pattern, callbacks)`: A shortcut for `FetchInterceptor.handle('POST', pattern, callbacks)`
 - `FetchInterceptor.any(pattern, callbacks)`: A shortcut for `FetchInterceptor.handle` over all method
 - <a id="FetchInterceptor.registerBodyParser"></a>`FetchInterceptor.registerBodyParser([...parsers])`: register body parsers for specific content types. The parser must implement the `BodyParserInterface` interface
-- `FetchInterceptor.enable()`: enable fetch interceptor, it also enable Fetch domain intentionally.
+- `FetchInterceptor.enable()`: enable fetch interceptor, it also enable Fetch domain internally.
 
 ## BodyParserInterface
 > Body parser interface, new body parser must implement this interface and register by the [`FetchInterceptor.registerBodyParser`](#FetchInterceptor.registerBodyParser) function.
