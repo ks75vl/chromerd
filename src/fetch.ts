@@ -48,10 +48,6 @@ export type InvocationContext = {
     params: Map<string, string>;
     /** The request headers of the invocation */
     requestHeaders: Map<string, string>;
-    /** Compares the current invocation context with another target context */
-    compare(target: InvocationContext): Promise<{ modified: boolean, modifiedParams: boolean }>;
-    /** Creates a deep-copy of the invocation context */
-    copy(): InvocationContext;
 }
 
 export type InvocationReturnValue = {
@@ -65,10 +61,6 @@ export type InvocationReturnValue = {
     form: Map<string, string>,
     /** The response headers of the response */
     responseHeaders: Map<string, string>;
-    /** Compares the current invocation context with another target context */
-    compare(target: InvocationReturnValue): Promise<{ modified: boolean }>;
-    /** Creates a deep-copy of the invocation context */
-    copy(): InvocationReturnValue;
 };
 
 
