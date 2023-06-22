@@ -810,6 +810,110 @@ describe('FetchInterceptor', () => {
         });
     });
 
+    it('should intercept request headers uppercase to FoO:bar on GET http://127.0.0.1/test/:id', async () => {
+        const requestId = 'requestId-01';
+        let requestPaused: (params: Protocol.Fetch.RequestPausedEvent) => Promise<void> = async param => { };
+        const Fetch: ProtocolProxyApi.FetchApi & DoEventPromises<'Fetch'> & DoEventListeners<'Fetch'> = {
+            disable: jest.fn(),
+            enable: jest.fn().mockImplementation(() => {
+                return Promise.resolve();
+            }),
+            authRequired: jest.fn(),
+            requestPaused: jest.fn().mockImplementation((callback: (params: Protocol.Fetch.RequestPausedEvent) => Promise<void>) => {
+                requestPaused = callback;
+            }),
+            failRequest: jest.fn(),
+            fulfillRequest: jest.fn(),
+            continueRequest: jest.fn().mockImplementation(params => {
+
+            }),
+            continueWithAuth: jest.fn(),
+            continueResponse: jest.fn(),
+            getResponseBody: jest.fn().mockImplementation(async () => {
+                return { base64Encoded: true, body: Buffer.from('<h1>Hello world!</h1>').toString('base64') };
+            }),
+            takeResponseBodyAsStream: jest.fn(),
+            on: jest.fn(),
+        };
+
+        const fetch = new FetchInterceptor(Fetch);
+        const callbacks = {
+            onRequest: jest.fn().mockImplementation(function (this: InvocationContext) {
+                this.requestHeaders.set('FoO', 'bar');
+            }),
+            onResponse: jest.fn().mockImplementation(function (this: InvocationReturnValue) {
+            })
+        }
+
+        fetch.get('http://127.0.0.1/test', callbacks);
+
+        await fetch.enable();
+
+        expect(Fetch.requestPaused).toBeCalledTimes(1);
+
+        /**
+         * Request pause in request state
+         */
+        await requestPaused({
+            requestId: requestId,
+            request: {
+                url: 'http://127.0.0.1/test',
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' },
+                initialPriority: 'Medium',
+                referrerPolicy: 'no-referrer'
+            },
+            frameId: 'frameId',
+            resourceType: 'Other',
+        });
+
+        expect(callbacks.onRequest).toBeCalledTimes(1);
+        expect(callbacks.onRequest).toBeCalledWith({}, {});
+
+        expect(Fetch.continueRequest).toBeCalledTimes(1);
+        expect(Fetch.continueRequest).toBeCalledWith({
+            requestId,
+            interceptResponse: true,
+            method: 'GET',
+            postData: '',
+            url: 'http://127.0.0.1/test',
+            headers: [
+                { name: 'content-type', value: 'application/json' },
+                { name: 'foo', value: 'bar' },
+            ],
+        });
+
+        /**
+         * Request pause in response state
+         */
+        await requestPaused({
+            requestId: requestId,
+            request: {
+                url: 'http://127.0.0.1/test',
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' },
+                initialPriority: 'Medium',
+                referrerPolicy: 'no-referrer'
+            },
+            responseStatusCode: 200,
+            responseStatusText: 'OK',
+            responseHeaders: [
+                { name: 'foo', value: 'bar' }
+            ],
+            frameId: 'frameId',
+            resourceType: 'Other',
+        });
+
+        expect(callbacks.onResponse).toBeCalledTimes(1);
+        expect(callbacks.onResponse).toBeCalledWith({});
+
+        expect(Fetch.fulfillRequest).toBeCalledTimes(1);
+        expect(Fetch.fulfillRequest).toBeCalledWith<Protocol.Fetch.FulfillRequestRequest[]>({
+            requestId,
+            responseCode: 200
+        });
+    });
+
     it('should intercept request all field on GET http://127.0.0.1/test', async () => {
         const requestId = 'requestId-01';
         let requestPaused: (params: Protocol.Fetch.RequestPausedEvent) => Promise<void> = async param => { };
@@ -1143,6 +1247,109 @@ describe('FetchInterceptor', () => {
             }),
             onResponse: jest.fn().mockImplementation(function (this: InvocationReturnValue) {
                 this.responseHeaders.set('name', 'alice');
+            })
+        }
+
+        fetch.get('http://127.0.0.1/test', callbacks);
+
+        await fetch.enable();
+
+        expect(Fetch.requestPaused).toBeCalledTimes(1);
+
+        /**
+         * Request pause in request state
+         */
+        await requestPaused({
+            requestId: requestId,
+            request: {
+                url: 'http://127.0.0.1/test',
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' },
+                initialPriority: 'Medium',
+                referrerPolicy: 'no-referrer'
+            },
+            frameId: 'frameId',
+            resourceType: 'Other',
+        });
+
+        expect(callbacks.onRequest).toBeCalledTimes(1);
+        expect(callbacks.onRequest).toBeCalledWith({}, {});
+
+        expect(Fetch.continueRequest).toBeCalledTimes(1);
+        expect(Fetch.continueRequest).toBeCalledWith({ requestId, interceptResponse: true });
+
+        /**
+         * Request pause in response state
+         */
+        await requestPaused({
+            requestId: requestId,
+            request: {
+                url: 'http://127.0.0.1/test',
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' },
+                initialPriority: 'Medium',
+                referrerPolicy: 'no-referrer'
+            },
+            responseStatusCode: 200,
+            responseStatusText: 'OK',
+            responseHeaders: [
+                { name: 'foo', value: 'bar' },
+                { name: 'Content-Type', value: 'application/json' }
+            ],
+            frameId: 'frameId',
+            resourceType: 'Other',
+        });
+
+        expect(callbacks.onResponse).toBeCalledTimes(1);
+        expect(callbacks.onResponse).toBeCalledWith({});
+
+        expect(Fetch.fulfillRequest).toBeCalledTimes(1);
+        expect(Fetch.fulfillRequest).toBeCalledWith<Protocol.Fetch.FulfillRequestRequest[]>({
+            requestId,
+            responseCode: 200,
+            responsePhrase: 'OK',
+            responseHeaders: [
+                { name: 'foo', value: 'bar' },
+                { name: 'content-type', value: 'application/json' },
+                { name: 'name', value: 'alice' }
+            ],
+            body: Buffer.from('<h1>Hello world!</h1>').toString('base64')
+        });
+    });
+
+    it('should intercept response responseHeaders to NaMe:alice on GET http://127.0.0.1/test', async () => {
+        const requestId = 'requestId-01';
+        let requestPaused: (params: Protocol.Fetch.RequestPausedEvent) => Promise<void> = async param => { };
+        const Fetch: ProtocolProxyApi.FetchApi & DoEventPromises<'Fetch'> & DoEventListeners<'Fetch'> = {
+            disable: jest.fn(),
+            enable: jest.fn().mockImplementation(() => {
+                return Promise.resolve();
+            }),
+            authRequired: jest.fn(),
+            requestPaused: jest.fn().mockImplementation((callback: (params: Protocol.Fetch.RequestPausedEvent) => Promise<void>) => {
+                requestPaused = callback;
+            }),
+            failRequest: jest.fn(),
+            fulfillRequest: jest.fn(),
+            continueRequest: jest.fn().mockImplementation(params => {
+
+            }),
+            continueWithAuth: jest.fn(),
+            continueResponse: jest.fn(),
+            getResponseBody: jest.fn().mockImplementation(async () => {
+                return { base64Encoded: true, body: Buffer.from('<h1>Hello world!</h1>').toString('base64') };
+            }),
+            takeResponseBodyAsStream: jest.fn(),
+            on: jest.fn(),
+        };
+
+        const fetch = new FetchInterceptor(Fetch);
+        const callbacks = {
+            onRequest: jest.fn().mockImplementation(function (this: InvocationContext) {
+
+            }),
+            onResponse: jest.fn().mockImplementation(function (this: InvocationReturnValue) {
+                this.responseHeaders.set('NaMe', 'alice');
             })
         }
 

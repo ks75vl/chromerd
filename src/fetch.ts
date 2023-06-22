@@ -334,7 +334,13 @@ export class FetchInterceptor {
          * onRequest
          */
         if (isreq) {
-            /** Prepare for callback */
+
+            /**
+             * Step 1: Build context, bind to callback and invoke callback.
+             *
+             * Note: If no callback is specified,
+             * send the `Fetch.continueRequest` command without any intercepted request.
+             */
             const { params: p } = matcher(pathname) || ({ params: {} } as MatchResult<{ [key: string]: string; }>);
             const params = new Map(Object.entries(p));
             const headers = new Map(requestHeaders);
@@ -355,14 +361,18 @@ export class FetchInterceptor {
             const invocationBody = Object.fromEntries(caller.form);
             const ret = (invoker(invocationQuery, invocationBody), caller);
 
-            /** Save context into cache for later */
+            /** 
+             * Step 2: Post callback process
+             * 
+             * Note:C lear the context cache, format the response header (in case the user has set a custom header name).
+             * Additionally, reparse the body (in case the user has changed the content-type).
+             */
             this.contextCache.set(requestId, ret);
-
-            /** Retrieve body parser */
-            const subparser = this.getBodyParser(ret.requestHeaders.get('content-type') || '');
+            Array.from(ret.requestHeaders).forEach(([name, value]) => /[A-Z]/.test(name) && (ret.requestHeaders.delete(name), ret.requestHeaders.set(name.toLowerCase(), value)));
+            const postparser = this.getBodyParser(ret.requestHeaders.get('content-type') || '');
 
             /**
-            * Build `Fetch.continueRequest` request
+            * Step 3: Build `Fetch.continueRequest` request
             *
             * Note: When a field is changed by a callback, all fields must be specified
             * to ensure that the change is applied.
@@ -373,7 +383,7 @@ export class FetchInterceptor {
             /**
              * @TODO Determine if `postData` needs to be encoded in `base64`.
              */
-            modified && ( /** Update url */crrq.url = (modifiedParams || modifiedQuery) ? (modifiedParams && (ret.target.pathname = compile<{ [key: string]: string; }>(pattern)(Object.fromEntries(ret.params))), (modifiedQuery && (ret.target.search = new URLSearchParams(Array.from(ret.query.entries())).toString())), ret.target.toString()) : ret.url, /** Update method */ crrq.method = ret.method, /** Update headers */ crrq.headers = Array.from(ret.requestHeaders).map(([name, value]) => ({ name, value })), /** Update post data */ crrq.postData = Buffer.from((modifiedForm && subparser) ? subparser.encode(Object.fromEntries(ret.form)) : (!!ret.body.byteLength ? ret.body : body)).toString('base64'));
+            modified && ( /** Update url */crrq.url = (modifiedParams || modifiedQuery) ? (modifiedParams && (ret.target.pathname = compile<{ [key: string]: string; }>(pattern)(Object.fromEntries(ret.params))), (modifiedQuery && (ret.target.search = new URLSearchParams(Array.from(ret.query.entries())).toString())), ret.target.toString()) : ret.url, /** Update method */ crrq.method = ret.method, /** Update headers */ crrq.headers = Array.from(ret.requestHeaders).map(([name, value]) => ({ name, value })), /** Update post data */ crrq.postData = Buffer.from((modifiedForm && postparser) ? postparser.encode(Object.fromEntries(ret.form)) : (!!ret.body.byteLength ? ret.body : body)).toString('base64'));
 
             return await this.fetch.continueRequest(crrq);
         }
@@ -412,14 +422,18 @@ export class FetchInterceptor {
         const invocationBody = Object.fromEntries(caller.form);
         const ret = (invoker(invocationBody), caller);
 
-        /** Remove context from cache */
+        /** 
+         * Step 2: Post callback process
+         * 
+         * Note:C lear the context cache, format the response header (in case the user has set a custom header name).
+         * Additionally, reparse the body (in case the user has changed the content-type).
+         */
         this.contextCache.delete(requestId);
-
-        /** Retrieve body parser */
-        const subparser = this.getBodyParser(ret.responseHeaders.get('content-type') || '');
+        Array.from(ret.responseHeaders).forEach(([name, value]) => /[A-Z]/.test(name) && (ret.responseHeaders.delete(name), ret.responseHeaders.set(name.toLowerCase(), value)));
+        const postparser = this.getBodyParser(ret.responseHeaders.get('content-type') || '');
 
         /**
-         * Step 2: Build `Fetch.FulfillRequestRequest` request
+         * Step 3: Build `Fetch.FulfillRequestRequest` request
          *
          * Note: When a field is changed by a callback, all fields must be specified
          * to ensure that the change is applied.
@@ -427,7 +441,7 @@ export class FetchInterceptor {
         const cffrq: Protocol.Fetch.FulfillRequestRequest = { requestId, responseCode: responseStatusCode };
         const { modified, modifiedForm } = await context.compare(ret);
 
-        modified && ( /** Update status code */cffrq.responseCode = ret.statusCode, /** Update status text */ cffrq.responsePhrase = ret.statusText, /** Update headers */ cffrq.responseHeaders = Array.from(ret.responseHeaders.entries(), ([name, value]) => ({ name, value })), /** Update body */ cffrq.body = Buffer.from((modifiedForm && subparser) ? subparser.encode(Object.fromEntries(ret.form)) : (!!ret.body.byteLength ? ret.body : body)).toString(base64Encoded ? 'base64' : 'utf8'));
+        modified && ( /** Update status code */cffrq.responseCode = ret.statusCode, /** Update status text */ cffrq.responsePhrase = ret.statusText, /** Update headers */ cffrq.responseHeaders = Array.from(ret.responseHeaders.entries(), ([name, value]) => ({ name, value })), /** Update body */ cffrq.body = Buffer.from((modifiedForm && postparser) ? postparser.encode(Object.fromEntries(ret.form)) : (!!ret.body.byteLength ? ret.body : body)).toString(base64Encoded ? 'base64' : 'utf8'));
 
         /**
          * Step 3: Send cdp command
