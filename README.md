@@ -13,7 +13,7 @@ A Chrome DevTools Protocol Wrapper with Frida Interceptor Style
 ## Features
 - FetchInterceptor ✅
 - DebuggerInterceptor (coming soon)
-- Storagenterceptor (coming soon).
+- StorageInterceptor (coming soon).
 ## Installation
 ```bash
 npm i @ks75vl/chromerd
@@ -80,7 +80,7 @@ import { FetchInterceptor } from "@ks75vl/chromerd";
 > Overwrite below properties to manipulate the response.
 - `statusCode`: Represents the HTTP status code of the response. It indicates the status of the request, https://developer.mozilla.org/en-US/docs/Web/HTTP/Status
 - `statusText`: Represents the status text of the response. It provides a briefdescription or message associated with the HTTP status code, https://developermozilla.org/en-US/docs/Web/HTTP/Status
-- `body`: Represents the raw response body. It is an `ArrayBuffer` that stores thebinary data of the response
+- `body`: Represents the raw response body. It is an `ArrayBuffer` that stores the binary data of the response
 - `form`: Represents the form body of the response, be parsed based on the`content-type` header value. It is a `Map` where the keys are field names, and thevalues are the corresponding field values as strings
 - `responseHeaders`: Represents the response headers of the response. It is a`Map` where the keys (`case-insensitive`) are header names, and the values are thecorresponding header values as strings.
 
