@@ -1,4 +1,10 @@
 # chromerd
+[![CodeQL](https://github.com/ks75vl/chromerd/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/ks75vl/chromerd/actions/workflows/github-code-scanning/codeql)
+[![Node.js CI](https://github.com/ks75vl/chromerd/actions/workflows/node.js.yml/badge.svg)](https://github.com/ks75vl/chromerd/actions/workflows/node.js.yml)
+![GitHub top language](https://img.shields.io/github/languages/top/ks75vl/chromerd)
+![npm](https://img.shields.io/npm/v/@ks75vl/chromerd)
+![GitHub](https://img.shields.io/github/license/ks75vl/chromerd)
+
 A Chrome DevTools Protocol Wrapper with Frida Interceptor Style
 
 ![chromerd-fetch-shot-crop](https://github.com/ks75vl/chromerd/assets/22657508/e4a82021-2d90-4574-950d-7274e0417eed)
