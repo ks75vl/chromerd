@@ -1,1 +1,1 @@
-export { FetchInterceptor } from './fetch';
+export { FetchInterceptor } from './fetch.js';

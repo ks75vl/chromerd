@@ -1,6 +1,6 @@
 import { MatchFunction, MatchResult, compile, match } from 'path-to-regexp';
-import type ProtocolProxyApi from 'devtools-protocol/types/protocol-proxy-api';
-import type Protocol from 'devtools-protocol/types/protocol';
+import { ProtocolProxyApi } from 'devtools-protocol/types/protocol-proxy-api.js';
+import { Protocol } from 'devtools-protocol/types/protocol.js';
 import { DoEventListeners, DoEventPromises } from 'chrome-remote-interface';
 import * as crypto from 'crypto';
 

@@ -1,6 +1,6 @@
 import { FetchInterceptor, InvocationCallbacks, InvocationContext, InvocationMethod, InvocationReturnValue, JsonBodyParser, UrlEncodedBodyParser } from '../src/fetch';
-import type ProtocolProxyApi from 'devtools-protocol/types/protocol-proxy-api';
-import type Protocol from 'devtools-protocol/types/protocol';
+import { ProtocolProxyApi } from 'devtools-protocol/types/protocol-proxy-api.js';
+import { Protocol } from 'devtools-protocol/types/protocol.js';
 import { DoEventListeners, DoEventPromises } from 'chrome-remote-interface';
 
 describe('JsonBodyParser', () => {
