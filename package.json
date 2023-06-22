@@ -2,21 +2,22 @@
     "name": "@ks75vl/chromerd",
     "version": "1.3.2",
     "description": "A Chrome DevTools Protocol Wrapper with Frida Interceptor Style",
-    "main": "src/index.ts",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "type": "module",
+    "files": ["dist", "package.json", "LICENSE"],
     "scripts": {
+        "prebuild": "tsc --build --clean",
+        "build": "tsc",
         "test": "jest",
-        "test:watch": "jest --watchAll"
+        "test:watch": "jest --watchAll",
+        "prepare": "npm run test && npm run build"
     },
     "repository": {
         "type": "git",
         "url": "git+https://github.com/ks75vl/chromerd.git"
     },
-    "keywords": [
-        "frida",
-        "cdp",
-        "devtools",
-        "hook"
-    ],
+    "keywords": ["frida", "cdp", "devtools", "hook"],
     "author": "ks75vl",
     "license": "MIT",
     "bugs": {
