@@ -1,6 +1,8 @@
 # chromerd
 A Chrome DevTools Protocol Wrapper with Frida Interceptor Style
 
+![chromerd-fetch-shot-crop](https://github.com/ks75vl/chromerd/assets/22657508/e4a82021-2d90-4574-950d-7274e0417eed)
+
 # Get started
 ## Features
 - FetchInterceptor ✅
