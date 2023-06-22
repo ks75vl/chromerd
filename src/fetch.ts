@@ -2,6 +2,7 @@ import { MatchFunction, MatchResult, compile, match } from 'path-to-regexp';
 import type ProtocolProxyApi from 'devtools-protocol/types/protocol-proxy-api';
 import type Protocol from 'devtools-protocol/types/protocol';
 import { DoEventListeners, DoEventPromises } from 'chrome-remote-interface';
+import 'crypto';
 
 /** Represents the available HTTP methods for invocations */
 const AllInvocationMethods = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'TRACE', 'PATCH'] as const;
