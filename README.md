@@ -63,7 +63,7 @@ import { FetchInterceptor } from "@ks75vl/chromerd";
 - `body`: Represents the raw body of the invocation. It is an `ArrayBuffer` that stores the binary data of the request body. Empty body will be ended in an zero-length `ArrayBuffer`.
 - `form`: Represents the form data of the invocation, parsed based on the `content-type` header value. It is a `Map` where the keys are field names, and the values can be `string` or `ArrayBuffer`
 - `params`: Represents the parameters extracted from the URL match pattern. It is a `Map` where the keys are parameter names, and the values are the corresponding parameter values as strings
-- `requestHeaders`: Represents the request headers of the invocation. It is a `Map` where the keys (`lower-case`) are header names, and the values are the corresponding header values as strings.
+- `requestHeaders`: Represents the request headers of the invocation. It is a `Map` where the keys (`case-insensitive`) are header names, and the values are the corresponding header values as strings.
 
 ## InvocationReturnValue
 >  An interface that represents the return value of an invocation or request. It contains various properties to monitor and manipulate response.
@@ -74,5 +74,5 @@ import { FetchInterceptor } from "@ks75vl/chromerd";
 - `statusText`: Represents the status text of the response. It provides a briefdescription or message associated with the HTTP status code, https://developermozilla.org/en-US/docs/Web/HTTP/Status
 - `body`: Represents the raw response body. It is an `ArrayBuffer` that stores thebinary data of the response
 - `form`: Represents the form body of the response, be parsed based on the`content-type` header value. It is a `Map` where the keys are field names, and thevalues are the corresponding field values as strings
-- `responseHeaders`: Represents the response headers of the response. It is a`Map` where the keys (`lower-case`) are header names, and the values are thecorresponding header values as strings.
+- `responseHeaders`: Represents the response headers of the response. It is a`Map` where the keys (`case-insensitive`) are header names, and the values are thecorresponding header values as strings.
 
