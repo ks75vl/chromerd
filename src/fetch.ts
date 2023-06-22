@@ -266,6 +266,20 @@ export class JsonBodyParser implements BodyParserInterface {
     }
 }
 
+export class UrlEncodedBodyParser implements BodyParserInterface {
+    name: string = 'application/x-www-form-urlencoded';
+
+    parse(data: ArrayBuffer): { [key: string]: string; } {
+        const s = new TextDecoder('utf-8').decode(data);
+        try { return Object.fromEntries(new URLSearchParams(s)); } catch (e) { return {}; }
+    }
+
+    encode(data: { [key: string]: string; }): ArrayBuffer {
+        const encoder = new TextEncoder();
+        return encoder.encode(new URLSearchParams(data).toString());
+    }
+}
+
 export class FetchInterceptor {
     private contextCache: Map<string, InvocationContext>;
     private listenersCache: Map<Map<MatchFunction<{ [key: string]: string }>, { pattern: string, callbacks: InvocationCallbacks }>, [MatchFunction<{ [key: string]: string }>, { pattern: string, callbacks: InvocationCallbacks }][]>;
@@ -278,7 +292,7 @@ export class FetchInterceptor {
         this.contextCache = new Map();
         this.listenersCache = new Map();
 
-        this.registerBodyParser(new JsonBodyParser());
+        this.registerBodyParser(new JsonBodyParser(), new UrlEncodedBodyParser());
     }
 
     registerBodyParser(...parsers: BodyParserInterface[]) {
@@ -305,7 +319,7 @@ export class FetchInterceptor {
     }
 
     private getBodyParser(contentType: string): BodyParserInterface | undefined {
-        const ct = /^(?<contentType>[a-zA-Z0-9]+\/[a-zA-Z0-9]+)(;.*)?/.exec(contentType)?.groups?.contentType || 'N/A';
+        const ct = /^(?<contentType>[a-zA-Z0-9]+\/[a-zA-Z0-9\-\_]+)(;.*)?/.exec(contentType)?.groups?.contentType || 'N/A';
         return this.bodyParser.get(ct);
     }
 
